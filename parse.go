@@ -32,14 +32,7 @@ func LoadURL(url string) (*Node, error) {
 
 // Parse returns the parse tree for the XML from the given Reader.
 func Parse(r io.Reader) (*Node, error) {
-	reader := NewCachedReader(bufio.NewReader(r))
-	decoder := xml.NewDecoder(reader)
-	return ParseWithDecoder(reader, decoder)
-}
-
-// ParseWithDecoder is identical to Parse, but uses the given reader and decoder
-func ParseWithDecoder(reader *CachedReader, decoder *xml.Decoder) (*Node, error) {
-	p := createParser(reader, decoder)
+	p := createParser(r)
 	for {
 		_, err := p.parse()
 		if err == io.EOF {
@@ -61,12 +54,13 @@ type parser struct {
 	streamElementFilter *xpath.Expr   // If specified, it provides further filtering on the target element.
 	streamNode          *Node         // Need to remember the last target node So we can clean it up upon next Read() call.
 	streamNodePrev      *Node         // Need to remember target node's prev so upon target node removal, we can restore correct prev.
-	reader              *CachedReader // Need to maintain a reference to the reader, so we can determine whether a node contains CDATA.
+	reader              *cachedReader // Need to maintain a reference to the reader, so we can determine whether a node contains CDATA.
 }
 
-func createParser(reader *CachedReader, decoder *xml.Decoder) *parser {
+func createParser(r io.Reader) *parser {
+	reader := newCachedReader(bufio.NewReader(r))
 	p := &parser{
-		decoder:      decoder,
+		decoder:      xml.NewDecoder(reader),
 		doc:          &Node{Type: DocumentNode},
 		space2prefix: make(map[string]string),
 		level:        0,
@@ -307,19 +301,6 @@ type StreamParser struct {
 // streamElementFilter, if provided, cannot be successfully parsed and compiled
 // into a valid xpath query.
 func CreateStreamParser(r io.Reader, streamElementXPath string, streamElementFilter ...string) (*StreamParser, error) {
-	reader := NewCachedReader(bufio.NewReader(r))
-	decoder := xml.NewDecoder(reader)
-	return CreateStreamParserWithDecoder(reader, decoder, streamElementXPath, streamElementFilter...)
-}
-
-// CreateStreamParserWithDecoder is identical to CreateStreamParser,
-// but uses the given reader and decoder
-func CreateStreamParserWithDecoder(
-	reader *CachedReader,
-	decoder *xml.Decoder,
-	streamElementXPath string,
-	streamElementFilter ...string,
-) (*StreamParser, error) {
 	elemXPath, err := getQuery(streamElementXPath)
 	if err != nil {
 		return nil, fmt.Errorf("invalid streamElementXPath '%s', err: %s", streamElementXPath, err.Error())
@@ -332,7 +313,7 @@ func CreateStreamParserWithDecoder(
 		}
 	}
 	sp := &StreamParser{
-		p: createParser(reader, decoder),
+		p: createParser(r),
 	}
 	sp.p.streamElementXPath = elemXPath
 	sp.p.streamElementFilter = elemFilter
